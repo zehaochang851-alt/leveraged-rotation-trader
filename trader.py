@@ -15,7 +15,6 @@ TICKERS = [
 
 W = 220
 TEST_ONLY = True
-
 NY = ZoneInfo("America/New_York")
 
 PAPER = "https://paper-api.alpaca.markets"
@@ -90,7 +89,10 @@ def clock():
 
 def fetch_prices(today):
     start = (today - timedelta(days=420)).isoformat()
-    end = today.isoformat()
+    # Free SIP mode: request only data older than today's NY midnight.
+    # This keeps the query safely outside Alpaca's recent-SIP restriction
+    # and ensures today's unfinished bar can never enter the signal.
+    end = datetime(today.year, today.month, today.day, tzinfo=NY).astimezone(ZoneInfo("UTC")).isoformat()
 
     bars = {
         ticker: []
@@ -107,7 +109,7 @@ def fetch_prices(today):
             "start": start,
             "end": end,
             "adjustment": "all",
-            "feed": "iex",
+            "feed": "sip",
             "limit": 10000,
             "sort": "asc"
         }
