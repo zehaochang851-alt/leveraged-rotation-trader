@@ -14,7 +14,7 @@ TICKERS = [
 ]
 
 W = 220
-TEST_ONLY = True
+TEST_ONLY = False
 NY = ZoneInfo("America/New_York")
 
 PAPER = "https://paper-api.alpaca.markets"
