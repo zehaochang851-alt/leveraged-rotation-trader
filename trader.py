@@ -107,7 +107,7 @@ def fetch_prices(today):
             "start": start,
             "end": end,
             "adjustment": "all",
-            "feed": "sip",
+            "feed": "iex",
             "limit": 10000,
             "sort": "asc"
         }
