@@ -86,22 +86,7 @@ jobs:
           fi
 
           NOW_NY=$(TZ=America/New_York date '+%Y-%m-%d %H:%M ET')
-          TEXT=$(cat <<EOF
-🚨 ALERT — FAILED
-$NOW_NY
 
-❌ GitHub Actions 執行失敗
-失敗階段：GitHub workflow / 執行環境
-原因：trader.py 未能正常完成，請查看 GitHub Actions。
+          TEXT=$(printf '%s\n'             "🚨 ALERT — FAILED"             "$NOW_NY"             ""             "❌ GitHub Actions 執行失敗"             "失敗階段：GitHub workflow / 執行環境"             "原因：trader.py 未能正常完成，請查看 GitHub Actions。"             ""             "🔄 今日訂單"             "無法由 GitHub 層確認訂單狀態，請查看 Alpaca Paper。"             ""             "🔴 系統異常")
 
-🔄 今日訂單
-無法由 GitHub 層確認訂單狀態，請查看 Alpaca Paper。
-
-🔴 系統異常
-EOF
-          )
-
-          curl --fail --silent --show-error \
-            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
-            --data-urlencode "text=${TEXT}"
+          curl --fail --silent --show-error             -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage"             --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}"             --data-urlencode "text=${TEXT}"
