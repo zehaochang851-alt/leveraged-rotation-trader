@@ -2,28 +2,37 @@ name: Paper Trade
 
 on:
   workflow_dispatch:
-  schedule:
-    # DST-safe trade checks. trader.py acts only 15-30 min before the real NYSE close.
-    - cron: "30 16-20 * * 1-5"
 
-    # DST-safe post-close checks. trader.py reports only shortly after the real close.
-    - cron: "20 17-21 * * 1-5"
+  schedule:
+    # Normal-close + early-close trade checks in New York local time.
+    - cron: "35 12,15 * * 1-5"
+      timezone: "America/New_York"
+
+    # Normal-close + early-close Daily Report checks.
+    - cron: "20 13,16 * * 1-5"
+      timezone: "America/New_York"
+
+permissions:
+  contents: read
 
 jobs:
   trade:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Decide mode
-        id: mode
+      - name: Decide mode and date
+        id: meta
         shell: bash
         env:
           EVENT_NAME: ${{ github.event_name }}
           SCHEDULE_EXPR: ${{ github.event.schedule }}
         run: |
+          DATE_NY=$(TZ=America/New_York date +%F)
+          echo "date=$DATE_NY" >> "$GITHUB_OUTPUT"
+
           if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
             echo "mode=trade" >> "$GITHUB_OUTPUT"
-          elif [[ "$SCHEDULE_EXPR" == 30* ]]; then
+          elif [[ "$SCHEDULE_EXPR" == 35* ]]; then
             echo "mode=trade" >> "$GITHUB_OUTPUT"
           else
             echo "mode=verify" >> "$GITHUB_OUTPUT"
@@ -31,6 +40,13 @@ jobs:
 
       - name: Checkout repository
         uses: actions/checkout@v4
+
+      - name: Restore today's strategy state
+        if: steps.meta.outputs.mode == 'verify'
+        uses: actions/cache/restore@v4
+        with:
+          path: .strategy_state.json
+          key: strategy-state-${{ steps.meta.outputs.date }}
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -46,4 +62,46 @@ jobs:
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python trader.py "${{ steps.mode.outputs.mode }}"
+          PAPER_START_DATE: "2026-09-11"
+        run: |
+          python trader.py "${{ steps.meta.outputs.mode }}" --state-file .strategy_state.json
+
+      - name: Save today's strategy state
+        if: success() && steps.meta.outputs.mode == 'trade' && hashFiles('.strategy_state.json') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: .strategy_state.json
+          key: strategy-state-${{ steps.meta.outputs.date }}
+
+      - name: Notify Telegram if GitHub workflow failed before trader could report it
+        if: failure()
+        shell: bash
+        env:
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+        run: |
+          if [ -f ".trader_failure_notified" ]; then
+            echo "trader.py already sent the failure notification."
+            exit 0
+          fi
+
+          NOW_NY=$(TZ=America/New_York date '+%Y-%m-%d %H:%M ET')
+          TEXT=$(cat <<EOF
+🚨 ALERT — FAILED
+$NOW_NY
+
+❌ GitHub Actions 執行失敗
+失敗階段：GitHub workflow / 執行環境
+原因：trader.py 未能正常完成，請查看 GitHub Actions。
+
+🔄 今日訂單
+無法由 GitHub 層確認訂單狀態，請查看 Alpaca Paper。
+
+🔴 系統異常
+EOF
+          )
+
+          curl --fail --silent --show-error \
+            -X POST "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+            --data-urlencode "chat_id=${TELEGRAM_CHAT_ID}" \
+            --data-urlencode "text=${TEXT}"
