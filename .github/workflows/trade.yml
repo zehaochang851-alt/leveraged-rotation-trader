@@ -2,19 +2,33 @@ name: Paper Trade
 
 on:
   workflow_dispatch:
-
   schedule:
-    # 15:30 New York time during daylight saving time
-    - cron: "30 19 * * 1-5"
+    # DST-safe trade checks. trader.py acts only 15-30 min before the real NYSE close.
+    - cron: "30 16-20 * * 1-5"
 
-    # 15:30 New York time during standard time
-    - cron: "30 20 * * 1-5"
+    # DST-safe post-close checks. trader.py reports only shortly after the real close.
+    - cron: "20 17-21 * * 1-5"
 
 jobs:
   trade:
     runs-on: ubuntu-latest
 
     steps:
+      - name: Decide mode
+        id: mode
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          SCHEDULE_EXPR: ${{ github.event.schedule }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then
+            echo "mode=trade" >> "$GITHUB_OUTPUT"
+          elif [[ "$SCHEDULE_EXPR" == 30* ]]; then
+            echo "mode=trade" >> "$GITHUB_OUTPUT"
+          else
+            echo "mode=verify" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Checkout repository
         uses: actions/checkout@v4
 
@@ -26,18 +40,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run only at 15:30 New York time
+      - name: Run paper automation
         env:
-          TZ: America/New_York
           ALPACA_API_KEY: ${{ secrets.ALPACA_API_KEY }}
           ALPACA_SECRET_KEY: ${{ secrets.ALPACA_SECRET_KEY }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: |
-          NOW=$(date +%H:%M)
-
-          if [ "$NOW" = "15:30" ]; then
-            python trader.py
-          else
-            echo "Not 15:30 New York time. Skip."
-          fi
+        run: python trader.py "${{ steps.mode.outputs.mode }}"
